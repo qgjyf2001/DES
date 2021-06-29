@@ -57,7 +57,7 @@ constexpr auto SBox=std::make_tuple(
                 std::make_tuple(2,1,14,7,4,10,8,13,15,12,9,0,3,5,6,11)
             )
         );
-const auto key=0b0001001100110100010101110111100110011011101111001101111111110001;
+
 constexpr auto lshift(const unsigned long long num,const int bits)
 {
     return ((num<<bits)&(0b1111111111111111111111111111))|(num>>(28-bits));
@@ -93,7 +93,6 @@ struct getKeys<key,-1>
 {
     static constexpr auto value=std::make_tuple();
 };
-using keys=getKeys<transfer_PC_1<key,55>::value,15>;
 template <long long num,int steps>
 struct SBOX
 {
@@ -105,30 +104,63 @@ struct SBOX<num,-1>
 {
     static constexpr auto value=0;
 };
-template <long long l0,long long r0,int steps,bool mode>
+template <long long l0,long long r0,long long key,int steps,bool mode>
 struct _encrypt
 {
-    static constexpr auto r=transfer_P<SBOX<transfer_E<_encrypt<l0,r0,steps-1,mode>::r,47>::value^std::get<mode?steps:15-steps>(keys::value),7>::value,31>::value^_encrypt<l0,r0,steps-1,mode>::l;
-    static constexpr auto l=_encrypt<l0,r0,steps-1,mode>::r;
+    using keys=getKeys<transfer_PC_1<key,55>::value,15>;
+    static constexpr auto r=transfer_P<SBOX<transfer_E<_encrypt<l0,r0,key,steps-1,mode>::r,47>::value^std::get<mode?steps:15-steps>(keys::value),7>::value,31>::value^_encrypt<l0,r0,key,steps-1,mode>::l;
+    static constexpr auto l=_encrypt<l0,r0,key,steps-1,mode>::r;
 };
-template  <long long l0,long long r0,bool mode>
-struct _encrypt<l0,r0,-1,mode>
+template  <long long l0,long long r0,long long key,bool mode>
+struct _encrypt<l0,r0,key,-1,mode>
 {
     static constexpr auto l=l0;
     static constexpr auto r=r0;
 };
-template  <long long message,bool mode>
+template  <long long message,long long key,bool mode>
 struct encrypt
 {
     using _message=transfer_IP<message,63>;
-    using cycle=_encrypt<(_message::value>>32),_message::value&0xffffffff,15,mode>;
+    using cycle=_encrypt<(_message::value>>32),_message::value&0xffffffff,key,15,mode>;
     static constexpr auto value=transfer_IP_1<(cycle::r<<32)|(cycle::l&0xffffffff),63>::value;
 };
+template  <char... args>
+struct getMessage
+{
+    static constexpr char value[sizeof...(args)+3]={'0','x',args...,'\0'};
+};
+constexpr auto hex=std::make_tuple('0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f');
+template <int depth,long long num,char... args>
+struct _getHex
+{
+    static constexpr auto value=_getHex<depth-4,num,args...,std::get<((num&((long long)0xf<<depth))>>depth)&0xf>(hex)>::value;
+};
+template <long long num,char ...args>
+struct _getHex<-4,num,args...>
+{
+    static constexpr auto value=getMessage<args...>::value;
+};
+template <long long num>
+using getHex=_getHex<60,num>;
 int main()
 {
+    const auto key=0b0001001100110100010101110111100110011011101111001101111111110001;
     const auto message=0b0000000100100011010001010110011110001001101010111100110111101111;
-   static_assert (encrypt<message,true>::value==0b1000010111101000000100110101010000001111000010101011010000000101,"error");
-   const auto en=encrypt<message,true>::value;
-   static_assert (encrypt<en,false>::value==message, "error");
+   static_assert (encrypt<message,key,true>::value==0b1000010111101000000100110101010000001111000010101011010000000101,"error");
+   const auto enc=encrypt<message,key,true>::value;
+   static_assert (encrypt<enc,key,false>::value==message, "error");
 
+    const auto key0=0x0f1571c947d9e859;
+    const auto message0=0x02468aceeca86420;
+    const auto en=encrypt<message0,key0,true>::value;
+    std::cout<<(getHex<en>::value)<<std::endl;
+
+#define print(num,_message,_key,perform) const long long key##num=_key;\
+    const long long message##num=_message;\
+    std::cout<<(getHex<encrypt<message##num,key##num,perform>::value>::value)<<std::endl;
+    print(1,0x12468aceeca86420,0x0f1571c947d9e859,true);
+    print(2,0x0123456789abcdef,0x1f1571c947d9e859,true);
+    print(3,0x0000000000000000,0x3abb72cbe0204027,true);
+    print(4,0x0123456789abcdef,0xbcca87bb9320ef40,false);
+    print(5,0x72ae4683e14940cd,0xda8483580415016b,false);
 }
